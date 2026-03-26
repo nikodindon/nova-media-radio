@@ -1,30 +1,44 @@
-# 🎙️ Nova Media — Radio IA automatisée
+# 🎙️ Nova Media — AI-Powered Automated Radio
 
-Radio autonome pilotée par des données JSON + TTS + Icecast.
+> An autonomous AI radio station driven by live news data, Text-to-Speech synthesis, and Icecast streaming.
+
+Music plays continuously. When enough new articles are detected, an AI-voiced news bulletin is automatically generated and seamlessly inserted into the live stream — with a smooth fadeout of the current track.
 
 ---
 
-## 📁 Structure du projet
+## ✨ Features
+
+- 🎵 **Continuous music streaming** via a single stable ffmpeg pipe to Icecast
+- 📰 **Real-time news monitoring** — watches a JSON file for incoming articles every 2 seconds
+- 🎙️ **Automatic bulletin generation** — assembles a script, synthesizes speech with edge-tts, mixes with background music
+- 🎚️ **Smooth fadeout** — music fades out cleanly when a bulletin is ready, no abrupt cuts
+- 🔀 **Random voices** — picks a different TTS voice for each bulletin
+- 🌐 **Cross-platform** — works on Linux and Windows 11
+- ⚙️ **Fully configurable** via a single YAML file
+
+---
+
+## 📁 Project Structure
 
 ```
 nova_media/
-├── main.py                      ← Point d'entrée
+├── main.py                      ← Entry point — orchestrates all threads
 ├── requirements.txt
-├── docker-compose.yml           ← Icecast
-├── icecast.xml                  ← Config Icecast
+├── docker-compose.yml           ← Icecast server (Docker)
+├── icecast.xml                  ← Icecast configuration
 ├── config/
-│   └── config.yaml              ← Toute la configuration
+│   └── config.yaml              ← All settings (Icecast, TTS, audio, paths)
 ├── modules/
-│   ├── news_watcher.py          ← Surveillance JSON
-│   ├── journal_builder.py       ← TTS + mixage audio
-│   └── streamer.py              ← Flux Icecast via ffmpeg
+│   ├── news_watcher.py          ← JSON file watcher
+│   ├── journal_builder.py       ← Script builder + TTS + audio mixing
+│   └── streamer.py              ← Icecast live stream via ffmpeg pipe
 ├── data/
-│   ├── articles/                ← Vos JSON de news (YYYYMMDD_articles.json)
-│   └── processed_hashes.json   ← Hashes des news déjà traitées
-├── music/                       ← Vos MP3 de musique principale
-├── background_music/            ← Vos MP3 de fond pour les journaux
-├── audio_queue/                 ← Journaux générés (auto)
-└── tmp/                         ← Fichiers TTS temporaires (auto)
+│   ├── articles/                ← Your news JSON files (YYYYMMDD_articles.json)
+│   └── processed_hashes.json   ← Tracks already-processed articles (auto)
+├── music/                       ← Main playlist MP3 files
+├── background_music/            ← Background music for bulletins
+├── audio_queue/                 ← Generated bulletins waiting to air (auto)
+└── tmp/                         ← Temporary TTS files (auto)
 ```
 
 ---
@@ -33,35 +47,29 @@ nova_media/
 
 ### 🐧 Linux (Ubuntu / Debian)
 
-#### 1. Prérequis système
-
+**1. System dependencies**
 ```bash
 sudo apt update && sudo apt install ffmpeg docker-compose python3-pip -y
 ```
 
-#### 2. Dépendances Python
-
+**2. Python dependencies**
 ```bash
 pip install -r requirements.txt
 ```
 
-#### 3. Lancer Icecast
-
+**3. Start Icecast**
 ```bash
 docker-compose up -d
 ```
+Check it's running: http://localhost:8000
 
-Vérifier qu'Icecast tourne : http://localhost:8000
-
-#### 4. Ajouter vos fichiers audio
-
+**4. Add your audio files**
 ```
-music/            → posez vos MP3 de musique ici (≥ 1 fichier requis)
-background_music/ → posez vos MP3 de fond ici (optionnel mais recommandé)
+music/             → drop your MP3s here (at least 1 required)
+background_music/  → background music for bulletins (optional but recommended)
 ```
 
-#### 5. Lancer Nova Media
-
+**5. Run Nova Media**
 ```bash
 python main.py
 ```
@@ -70,98 +78,97 @@ python main.py
 
 ### 🪟 Windows 11
 
-#### 1. Installer Python 3.10+
+**1. Install Python 3.10+**
 
-Téléchargez Python sur https://www.python.org/downloads/windows/
+Download from https://www.python.org/downloads/windows/
 
-> ⚠️ Cochez bien **"Add Python to PATH"** lors de l'installation.
+> ⚠️ Make sure to check **"Add Python to PATH"** during installation.
 
-#### 2. Installer ffmpeg
+**2. Install ffmpeg**
 
-1. Téléchargez la version Windows sur https://ffmpeg.org/download.html  
-   (choisir un build *essentials* ou *full* depuis gyan.dev ou BtbN)
-2. Extrayez l'archive, par exemple dans `C:\ffmpeg\`
-3. Ajoutez `C:\ffmpeg\bin` à votre **PATH système** :
-   - Rechercher "Variables d'environnement" dans le menu Démarrer
-   - Éditer la variable `Path` de l'utilisateur ou du système
-   - Ajouter `C:\ffmpeg\bin`
-4. **Redémarrez votre terminal** puis vérifiez : `ffmpeg -version`
+1. Download a Windows build from https://ffmpeg.org/download.html (essentials or full build from gyan.dev or BtbN)
+2. Extract the archive, e.g. to `C:\ffmpeg\`
+3. Add `C:\ffmpeg\bin` to your **system PATH**:
+   - Search "Environment Variables" in the Start menu
+   - Edit the `Path` variable
+   - Add `C:\ffmpeg\bin`
+4. **Restart your terminal**, then verify: `ffmpeg -version`
 
-#### 3. Installer Docker Desktop (pour Icecast)
+**3. Install Docker Desktop (for Icecast)**
 
-Téléchargez Docker Desktop sur https://www.docker.com/products/docker-desktop/
+Download from https://www.docker.com/products/docker-desktop/
 
-> Après installation, lancez Docker Desktop et attendez qu'il soit bien démarré (icône verte dans la barre des tâches).
+> Wait for Docker Desktop to fully start (green icon in the system tray) before running the next step.
 
-**Alternative sans Docker** : téléchargez le binaire Icecast natif Windows sur https://www.icecast.org/download/ et remplacez le fichier `icecast.xml` par celui du projet.
+**Alternative without Docker**: download the native Windows Icecast binary from https://www.icecast.org/download/ and use the `icecast.xml` from this project.
 
-#### 4. Dépendances Python
+**4. Python dependencies**
 
-Ouvrez un terminal (PowerShell ou cmd) dans le dossier du projet :
-
+Open a terminal (PowerShell or cmd) in the project folder:
 ```powershell
 pip install -r requirements.txt
 ```
 
-#### 5. Lancer Icecast
-
+**5. Start Icecast**
 ```powershell
 docker-compose up -d
 ```
+Check it's running: http://localhost:8000
 
-Vérifier qu'Icecast tourne : http://localhost:8000
-
-#### 6. Ajouter vos fichiers audio
-
+**6. Add your audio files**
 ```
-music\            → posez vos MP3 de musique ici (≥ 1 fichier requis)
-background_music\ → posez vos MP3 de fond ici (optionnel mais recommandé)
+music\             → drop your MP3s here (at least 1 required)
+background_music\  → background music for bulletins (optional but recommended)
 ```
 
-#### 7. Lancer Nova Media
-
+**7. Run Nova Media**
 ```powershell
 python main.py
 ```
 
-Pour arrêter : **Ctrl+C** dans le terminal (SIGTERM n'est pas utilisé sous Windows, Ctrl+C suffit).
+To stop: **Ctrl+C** in the terminal.
 
 ---
 
-## 📻 Écouter la radio
+## 📻 Listening to the Stream
 
-- **VLC** : Media → Ouvrir un flux réseau → `http://localhost:8000/nova`
-- **Navigateur** : http://localhost:8000/nova
-- **ffplay** : `ffplay http://localhost:8000/nova`
+| Client | URL |
+|--------|-----|
+| **VLC** | Media → Open Network Stream → `http://localhost:8000/nova` |
+| **Browser** | http://localhost:8000/nova |
+| **ffplay** | `ffplay http://localhost:8000/nova` |
 
 ---
 
 ## ⚙️ Configuration (`config/config.yaml`)
 
-| Clé | Description | Défaut |
-|-----|-------------|--------|
-| `icecast.host` | Adresse du serveur Icecast | `localhost` |
-| `icecast.port` | Port Icecast | `8000` |
-| `icecast.password` | Mot de passe source | `hackme` |
-| `icecast.mount` | Point de montage | `/nova` |
-| `radio.news_per_bulletin` | News requises pour déclencher un journal | `5` |
-| `radio.news_interval_seconds` | Fréquence de vérification du JSON | `2` |
-| `radio.background_volume` | Volume musique de fond (0.0–1.0) | `0.30` |
-| `tts.voices` | Liste des voix edge-tts | Voir yaml |
+| Key | Description | Default |
+|-----|-------------|---------|
+| `icecast.host` | Icecast server address | `localhost` |
+| `icecast.port` | Icecast port | `8000` |
+| `icecast.password` | Source password | `hackme` |
+| `icecast.mount` | Mount point | `/nova` |
+| `radio.news_per_bulletin` | Articles needed to trigger a bulletin | `5` |
+| `radio.news_interval_seconds` | JSON polling frequency (seconds) | `2` |
+| `radio.background_volume` | Background music volume (0.0–1.0) | `0.30` |
+| `tts.voices` | List of edge-tts voices to use randomly | see yaml |
 
-### Voix disponibles
+### Available TTS voices
 
-Pour lister toutes les voix disponibles :
-
+List all available voices:
+```bash
+edge-tts --list-voices
+```
+Filter by language (e.g. French):
 ```bash
 edge-tts --list-voices | grep fr-
 ```
 
 ---
 
-## 📰 Format du JSON de news
+## 📰 News JSON Format
 
-Fichier : `data/articles/YYYYMMDD_articles.json`
+File: `data/articles/YYYYMMDD_articles.json`
 
 ```json
 [
@@ -169,87 +176,115 @@ Fichier : `data/articles/YYYYMMDD_articles.json`
     "hash": "e6d5fef6504a0a908253ea3eb9b818c0",
     "timestamp": "2026-03-24T00:17:07.662666",
     "category": "crypto",
-    "title": "Titre de l'article",
+    "title": "Article title",
     "link": "https://...",
     "source": "source.com",
     "pub_date": "Mon, 23 Mar 2026 22:26:40 +0000",
-    "summary": "Résumé de l'article en français qui sera lu à l'antenne."
+    "summary": "Article summary that will be read on air."
   }
 ]
 ```
 
-Seul le champ `summary` est utilisé pour la lecture à l'antenne.
+Only the `summary` field is used for the bulletin script. Articles with a summary starting with `[Contenu inaccessible]` are automatically skipped.
 
 ---
 
-## 🧵 Architecture des threads
+## 🧵 Architecture
+
+Nova Media runs three concurrent threads:
 
 ```
 main.py
-  ├── Thread 1 : NewsWatcher    → surveille YYYYMMDD_articles.json toutes les 2s
-  ├── Thread 2 : Streamer       → flux continu vers Icecast (1 seul ffmpeg pipe)
-  └── Thread 3 : BulletinGen    → généré ponctuellement quand 5 news sont prêtes
-                                   (TTS edge-tts + mixage ffmpeg → audio_queue/)
+  ├── Thread 1 — NewsWatcher    watches YYYYMMDD_articles.json every 2s
+  │                              triggers a bulletin when N new articles detected
+  │
+  ├── Thread 2 — Streamer       maintains a single ffmpeg pipe to Icecast
+  │                              plays music continuously, bulletins take priority
+  │                              applies smooth fadeout when a bulletin is ready
+  │
+  └── Thread 3 — BulletinGen    spawned on demand when articles are ready
+                                 builds script → TTS (edge-tts) → mix with ffmpeg
+                                 drops final MP3 into audio_queue/
 ```
+
+**Streaming design**: a single long-lived ffmpeg process reads from stdin and pushes to Icecast. Music and bulletins are transcoded separately and written into this pipe one after the other — no stream restarts, no client disconnections.
 
 ---
 
-## 🔧 Dépannage
+## 🔧 Troubleshooting
 
-**VLC ne se connecte pas**
-→ Vérifier qu'Icecast tourne : `docker-compose ps`
-→ Vérifier que ffmpeg est connecté dans les logs
+**VLC won't connect**
+→ Check Icecast is running: `docker-compose ps`
+→ Check the logs for `🔗 Connected to Icecast`
 
-**Pas de son / silence**
-→ Vérifier qu'il y a des MP3 dans `music/`
+**No sound / silence**
+→ Make sure there are MP3 files in `music/`
 
-**Erreur TTS**
-→ edge-tts nécessite une connexion internet (API Microsoft)
+**TTS error**
+→ edge-tts requires an internet connection (Microsoft API)
 
-**Changer le mot de passe Icecast**
-→ Modifier dans `icecast.xml` ET `config/config.yaml`, puis redémarrer Docker
+**Change the Icecast password**
+→ Update both `icecast.xml` and `config/config.yaml`, then restart Docker
 
-### 🪟 Dépannage spécifique Windows
+---
 
-**Utiliser des chemins absolus Windows dans `config.yaml`**
-→ Le backslash `\` est un caractère spécial en YAML. Utilisez toujours des slashes `/` à la place :
+### 🪟 Windows-specific issues
+
+**Absolute paths in `config.yaml`**
+→ Backslashes `\` are special characters in YAML. Always use forward slashes `/`:
 ```yaml
 # ✅ Correct
 data_dir: "c:/audio/articles"
 music_dir: "c:/audio/music"
 
-# ❌ À éviter — le \a et \m seront mal interprétés
+# ❌ Wrong — \a and \m will be misinterpreted
 data_dir: "c:\audio\articles"
 ```
-Les slashes `/` sont parfaitement acceptés par Windows et Python, et évitent tout problème d'échappement.
 
-**`ffmpeg` introuvable dans le terminal**
-→ Vérifier que `C:\ffmpeg\bin` est bien dans le PATH et que le terminal a été redémarré après modification
-→ Tester avec : `where ffmpeg`
+**`ffmpeg` not found**
+→ Make sure `C:\ffmpeg\bin` is in your PATH and restart the terminal after editing it
+→ Test with: `where ffmpeg`
 
-**`docker-compose` introuvable**
-→ Avec Docker Desktop, la commande est `docker compose` (sans tiret) :
+**`docker-compose` not found**
+→ With Docker Desktop, use `docker compose` (no hyphen):
 ```powershell
 docker compose up -d
 ```
 
-**Erreur d'encodage dans les logs (caractères spéciaux)**
-→ Forcer l'UTF-8 dans PowerShell avant de lancer :
+**Encoding errors in logs**
+→ Force UTF-8 in PowerShell before running:
 ```powershell
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 python main.py
 ```
 
-**Emoji non affichés dans le terminal Windows**
-→ Utiliser Windows Terminal (disponible sur le Microsoft Store) plutôt que l'invite de commandes classique
+**Emojis not displaying in terminal**
+→ Use Windows Terminal (available on the Microsoft Store) instead of the classic cmd
 
 ---
 
-## 🛠️ Développement futur
+## 🛠️ Roadmap
 
-- [ ] Intégration Claude API pour reformulation des summaries
-- [ ] Interface web de monitoring
-- [ ] Gestion multi-flux (plusieurs mountpoints)
-- [ ] Jingles et sons d'habillage
-- [ ] Générateur de JSON de news automatique (RSS → résumé IA)
+- [ ] Claude API integration to rewrite summaries in a radio-friendly style
+- [ ] Web monitoring dashboard
+- [ ] Multi-stream support (multiple mount points)
+- [ ] Jingles and station IDs
+- [ ] Automatic news feed (RSS → AI summary → JSON)
+
+---
+
+## 📦 Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| `edge-tts` | Text-to-speech synthesis (Microsoft Neural voices) |
+| `pyyaml` | YAML config parsing |
+| `ffmpeg` *(system)* | Audio transcoding, mixing, streaming |
+| `icecast` *(Docker)* | Live audio streaming server |
+
+---
+
+## 📄 License
+
+MIT
