@@ -266,11 +266,10 @@ python main.py
 
 ## 🛠️ Roadmap
 
-- [ ] Claude API integration to rewrite summaries in a radio-friendly style
 - [ ] Web monitoring dashboard
 - [ ] Multi-stream support (multiple mount points)
 - [ ] Jingles and station IDs
-- [ ] Automatic news feed (RSS → AI summary → JSON)
+
 
 ---
 

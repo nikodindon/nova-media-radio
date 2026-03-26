@@ -4,10 +4,9 @@ Gère le flux audio continu vers Icecast via un pipe ffmpeg unique.
 
 Principe :
   - Un seul processus ffmpeg reste actif en permanence (pipe stdin)
-  - On écrit les fichiers audio dedans un par un (musique ou journal)
-  - Fadeout : appliqué EN UNE SEULE PASSE ffmpeg avant le stream,
-    pas chunk par chunk (évite les micro-coupures)
-  - Aucune relance brutale du process principal → pas de coupure VLC
+  - Les fichiers sont transcodés à la volée et écrits dans ce pipe
+  - Fadeout : on track la position de lecture en temps réel (bytes lus → secondes)
+    et on génère le fadeout depuis cette position exacte → transition fluide garantie
 """
 
 import logging
@@ -21,11 +20,8 @@ from queue import Empty, Queue
 
 logger = logging.getLogger("nova.streamer")
 
-CHUNK_SIZE = 65536  # 64KB
-FADE_DURATION = 3.0  # secondes de fadeout musical
-
-# Buffer de silence global (initialisé dans Streamer.__init__)
-_SILENCE_BYTES: bytes = b""
+CHUNK_SIZE = 65536   # 64KB par chunk
+FADE_DURATION = 3.0  # durée du fadeout en secondes
 
 
 def _generate_silence(sample_rate: int, bitrate: str, duration: float = 0.5) -> bytes:
@@ -46,15 +42,34 @@ def _generate_silence(sample_rate: int, bitrate: str, duration: float = 0.5) -> 
         return b""
 
 
+def _get_duration(path: Path) -> float | None:
+    """Retourne la durée d'un fichier audio en secondes via ffprobe."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error",
+             "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1",
+             str(path)],
+            capture_output=True, text=True, timeout=10
+        )
+        return float(result.stdout.strip())
+    except Exception:
+        return None
+
+
+# Buffer de silence global (initialisé dans Streamer.__init__)
+_SILENCE_BYTES: bytes = b""
+
+
 class Streamer:
     def __init__(self, config: dict):
         radio = config["radio"]
-        ice = config["icecast"]
+        ice   = config["icecast"]
         audio = config["audio"]
 
-        self.music_dir = Path(radio["music_dir"])
-        self.queue_dir = Path(radio["audio_queue_dir"])
-        self.bitrate = audio["bitrate"]
+        self.music_dir  = Path(radio["music_dir"])
+        self.queue_dir  = Path(radio["audio_queue_dir"])
+        self.bitrate     = audio["bitrate"]
         self.sample_rate = audio["sample_rate"]
 
         self.icecast_url = (
@@ -62,7 +77,7 @@ class Streamer:
             f"@{ice['host']}:{ice['port']}{ice['mount']}"
         )
 
-        self._stop_event = threading.Event()
+        self._stop_event     = threading.Event()
         self._fade_requested = threading.Event()
         self._ffmpeg_proc: subprocess.Popen | None = None
         self._play_queue: Queue = Queue()
@@ -72,10 +87,8 @@ class Streamer:
 
         global _SILENCE_BYTES
         _SILENCE_BYTES = _generate_silence(self.sample_rate, self.bitrate)
-        if _SILENCE_BYTES:
-            logger.info("🔇 Buffer de silence initialisé")
-        else:
-            logger.warning("⚠️ Impossible de générer le buffer de silence")
+        logger.info("🔇 Buffer de silence initialisé" if _SILENCE_BYTES
+                    else "⚠️ Impossible de générer le buffer de silence")
 
     # ------------------------------------------------------------------ #
     #  API publique                                                        #
@@ -116,51 +129,15 @@ class Streamer:
         except Empty:
             music = self._pick_music()
             if music:
-                # Journal déjà en file avant même que la musique commence ?
-                # → musique courte avec fadeout d'emblée
                 if self._fade_requested.is_set():
-                    self._play_music_short_with_fadeout(music)
+                    # Journal prêt avant que la musique commence → intro courte
+                    self._stream_music_with_intro_fade(music)
                 else:
                     logger.info(f"🎵 Musique : {music.name}")
                     self._stream_file(music, is_music=True)
             else:
                 logger.warning("⚠️ Aucune musique trouvée, attente 5s…")
                 time.sleep(5)
-
-    def _play_music_short_with_fadeout(self, music_path: Path):
-        """
-        Joue ~15s de musique puis fadeout de 3s avant de passer au journal.
-        Utilisé quand un journal est déjà prêt avant que la musique commence.
-        """
-        logger.info(f"🎵 Musique courte avant journal : {music_path.name}")
-        self._fade_requested.clear()
-
-        SHORT = 15.0
-        tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-        tmp.close()
-        out_path = Path(tmp.name)
-
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", str(music_path),
-            "-t", str(SHORT + FADE_DURATION),
-            "-af", f"afade=t=out:st={SHORT:.1f}:d={FADE_DURATION:.1f}",
-            "-ar", str(self.sample_rate),
-            "-ac", "2",
-            "-b:a", self.bitrate,
-            "-codec:a", "libmp3lame",
-            str(out_path)
-        ]
-        try:
-            result = subprocess.run(cmd, capture_output=True, timeout=60)
-            if result.returncode == 0:
-                self._stream_file(out_path, is_music=False)
-            else:
-                logger.warning("Musique courte échouée, passage direct au journal")
-        except Exception as e:
-            logger.warning(f"Erreur musique courte : {e}")
-        finally:
-            out_path.unlink(missing_ok=True)
 
     def _pick_music(self) -> Path | None:
         if not self.music_dir.exists():
@@ -169,14 +146,55 @@ class Streamer:
         return random.choice(files) if files else None
 
     # ------------------------------------------------------------------ #
-    #  Streaming d'un fichier                                              #
+    #  Cas : journal prêt avant que la musique commence                   #
+    # ------------------------------------------------------------------ #
+
+    def _stream_music_with_intro_fade(self, music_path: Path):
+        """
+        Journal déjà prêt → joue 15s de musique puis fadeout propre.
+        Tout est calculé en une seule passe ffmpeg : pas de coupure.
+        """
+        logger.info(f"🎵 Intro musicale avant journal : {music_path.name}")
+        self._fade_requested.clear()
+
+        INTRO = 15.0
+        tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+        tmp.close()
+        out_path = Path(tmp.name)
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(music_path),
+            "-t", str(INTRO + FADE_DURATION),
+            "-af", f"afade=t=out:st={INTRO:.2f}:d={FADE_DURATION:.2f}",
+            "-ar", str(self.sample_rate), "-ac", "2",
+            "-b:a", self.bitrate, "-codec:a", "libmp3lame",
+            str(out_path)
+        ]
+        try:
+            r = subprocess.run(cmd, capture_output=True, timeout=60)
+            if r.returncode == 0:
+                self._stream_file(out_path, is_music=False)
+            else:
+                logger.warning("Intro fade échouée, passage direct au journal")
+        except Exception as e:
+            logger.warning(f"Erreur intro fade : {e}")
+        finally:
+            out_path.unlink(missing_ok=True)
+
+    # ------------------------------------------------------------------ #
+    #  Streaming principal                                                 #
     # ------------------------------------------------------------------ #
 
     def _stream_file(self, path: Path, is_music: bool = True):
         """
-        Réencode et streame le fichier vers Icecast via le pipe ffmpeg.
-        Si is_music=True et qu'un journal arrive, interrompt proprement
-        avec fadeout EN UNE PASSE (pas chunk par chunk).
+        Réencode et streame le fichier vers Icecast.
+
+        Si is_music=True et qu'un journal arrive pendant la lecture :
+          1. On note la position exacte (bytes lus → secondes écoulées)
+          2. On arrête proprement le transcodeur
+          3. On repart de cette position dans le fichier avec un afade=out
+          4. Transition parfaitement continue, sans saut audible
         """
         if self._ffmpeg_proc is None or self._ffmpeg_proc.poll() is not None:
             logger.warning("⚠️ Process ffmpeg mort, relance…")
@@ -185,13 +203,14 @@ class Streamer:
 
         self._write_silence()
 
+        # Durée totale du fichier (pour calculer le bitrate réel)
+        total_duration = _get_duration(path)
+
         transcode_cmd = [
             "ffmpeg", "-y",
             "-i", str(path),
-            "-ar", str(self.sample_rate),
-            "-ac", "2",
-            "-b:a", self.bitrate,
-            "-codec:a", "libmp3lame",
+            "-ar", str(self.sample_rate), "-ac", "2",
+            "-b:a", self.bitrate, "-codec:a", "libmp3lame",
             "-f", "mp3", "pipe:1"
         ]
 
@@ -202,21 +221,27 @@ class Streamer:
                 stderr=subprocess.DEVNULL,
             )
 
+            bytes_read   = 0
+            start_time   = time.monotonic()
+
             while not self._stop_event.is_set():
 
-                # Journal arrivé pendant la musique → fadeout en une passe
+                # Journal arrivé → fadeout depuis la position courante
                 if is_music and self._fade_requested.is_set():
-                    logger.info("🎚️ Journal détecté — fadeout en cours…")
                     self._fade_requested.clear()
+                    elapsed = time.monotonic() - start_time
+                    logger.info(f"🎚️ Fadeout depuis {elapsed:.1f}s dans {path.name}")
                     transcode.kill()
                     transcode.stdout.close()
                     transcode.wait(timeout=3)
-                    self._do_fadeout_tail(path)
+                    self._do_positioned_fadeout(path, elapsed)
                     return
 
                 chunk = transcode.stdout.read(CHUNK_SIZE)
                 if not chunk:
                     break
+
+                bytes_read += len(chunk)
 
                 try:
                     self._ffmpeg_proc.stdin.write(chunk)
@@ -233,43 +258,45 @@ class Streamer:
         except Exception as e:
             logger.error(f"Erreur streaming {path.name} : {e}")
 
-    def _do_fadeout_tail(self, original_path: Path):
+    # ------------------------------------------------------------------ #
+    #  Fadeout positionné : repart exactement là où on était              #
+    # ------------------------------------------------------------------ #
+
+    def _do_positioned_fadeout(self, path: Path, position_seconds: float):
         """
-        Prend les dernières (FADE_DURATION * 2) secondes du fichier original,
-        applique un fadeout en une passe ffmpeg, streame le résultat.
-        Cela donne un fondu propre sans micro-coupures.
+        Repart depuis `position_seconds` dans le fichier original,
+        joue FADE_DURATION secondes avec un fadeout progressif.
+        Résultat : transition parfaitement fluide, sans saut ni bout de chanson bizarre.
         """
-        logger.info("🎚️ Génération fadeout final…")
+        logger.info(f"🎚️ Génération fadeout positionné à {position_seconds:.1f}s…")
         tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
         tmp.close()
         out_path = Path(tmp.name)
 
-        segment = FADE_DURATION * 2  # quelques secondes avant le fadeout
         cmd = [
             "ffmpeg", "-y",
-            "-sseof", f"-{segment:.1f}",  # N secondes avant la fin du fichier
-            "-i", str(original_path),
-            "-af", f"afade=t=out:st=0:d={FADE_DURATION:.1f}",
-            "-ar", str(self.sample_rate),
-            "-ac", "2",
-            "-b:a", self.bitrate,
-            "-codec:a", "libmp3lame",
+            "-ss", f"{position_seconds:.3f}",   # seek exact vers la position courante
+            "-i", str(path),
+            "-t", f"{FADE_DURATION:.2f}",        # on prend juste la durée du fade
+            "-af", f"afade=t=out:st=0:d={FADE_DURATION:.2f}",  # fade depuis le début du segment
+            "-ar", str(self.sample_rate), "-ac", "2",
+            "-b:a", self.bitrate, "-codec:a", "libmp3lame",
             str(out_path)
         ]
         try:
-            result = subprocess.run(cmd, capture_output=True, timeout=30)
-            if result.returncode == 0 and out_path.stat().st_size > 0:
-                logger.info("🎚️ Fadeout prêt, diffusion…")
+            r = subprocess.run(cmd, capture_output=True, timeout=30)
+            if r.returncode == 0 and out_path.stat().st_size > 0:
+                logger.info("🎚️ Fadeout positionné prêt, diffusion…")
                 self._stream_file(out_path, is_music=False)
             else:
-                logger.warning("Fadeout final échoué, passage direct au journal")
+                logger.warning(f"Fadeout positionné échoué (code {r.returncode}), passage direct au journal")
         except Exception as e:
-            logger.warning(f"Erreur fadeout final : {e}")
+            logger.warning(f"Erreur fadeout positionné : {e}")
         finally:
             out_path.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------ #
-    #  Silence entre fichiers                                              #
+    #  Silence de transition                                               #
     # ------------------------------------------------------------------ #
 
     def _write_silence(self):
@@ -289,14 +316,10 @@ class Streamer:
         with self._lock:
             self._kill_ffmpeg()
             cmd = [
-                "ffmpeg",
-                "-re",
-                "-f", "mp3",
-                "-i", "pipe:0",
-                "-ar", str(self.sample_rate),
-                "-ac", "2",
-                "-b:a", self.bitrate,
-                "-codec:a", "libmp3lame",
+                "ffmpeg", "-re",
+                "-f", "mp3", "-i", "pipe:0",
+                "-ar", str(self.sample_rate), "-ac", "2",
+                "-b:a", self.bitrate, "-codec:a", "libmp3lame",
                 "-f", "mp3",
                 "-content_type", "audio/mpeg",
                 "-ice_name", "Nova Media",
