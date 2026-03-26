@@ -1,0 +1,35 @@
+icecast:
+  host: "localhost"
+  port: 8000
+  password: "hackme"
+  mount: "/nova"
+  user: "source"
+
+radio:
+  news_interval_seconds: 2       # fréquence de surveillance du JSON
+  news_per_bulletin: 5           # nombre de nouvelles news avant de lancer un journal
+  bulletin_check_interval: 10    # vérification queue journal (secondes)
+  music_dir: "music"
+  background_music_dir: "background_music"
+  audio_queue_dir: "audio_queue"
+  tmp_dir: "tmp"
+  data_dir: "O:/Users/nikodindon/Desktop/IA/atlasv2/data/articles"
+  processed_hashes_file: "data/processed_hashes.json"
+  background_volume: 0.30        # volume musique de fond (30%)
+
+tts:
+  language: "fr"                 # langue par défaut pour les voix
+  # Voix françaises disponibles dans edge-tts
+  voices:
+    - "fr-FR-DeniseNeural"
+    - "fr-FR-HenriNeural"
+    - "fr-FR-EloiseNeural"
+    - "fr-BE-CharlineNeural"
+    - "fr-BE-GerardNeural"
+    - "fr-CA-SylvieNeural"
+    - "fr-CA-JeanNeural"
+
+audio:
+  bitrate: "128k"
+  sample_rate: 44100
+  channels: 2

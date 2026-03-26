@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  icecast:
+    image: moul/icecast
+    container_name: nova_icecast
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./icecast.xml:/etc/icecast2/icecast.xml:ro
+    restart: unless-stopped

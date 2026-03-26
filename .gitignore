@@ -1,0 +1,28 @@
+# Fichiers générés automatiquement
+audio_queue/
+tmp/
+data/processed_hashes.json
+
+# Logs
+nova_media.log
+*.log
+
+# Musiques (trop lourdes pour Git)
+music/
+background_music/
+
+# Articles JSON (données personnelles / volumineuses)
+data/articles/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
