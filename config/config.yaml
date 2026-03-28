@@ -21,13 +21,27 @@ tts:
   language: "fr"                 # langue par défaut pour les voix
   # Voix françaises disponibles dans edge-tts
   voices:
-    - "fr-FR-DeniseNeural"
-    - "fr-FR-HenriNeural"
-    - "fr-FR-EloiseNeural"
-    - "fr-BE-CharlineNeural"
-    - "fr-BE-GerardNeural"
-    - "fr-CA-SylvieNeural"
-    - "fr-CA-JeanNeural"
+#    - "fr-FR-DeniseNeural"
+#    - "fr-FR-HenriNeural"
+#    - "fr-FR-EloiseNeural"
+#    - "fr-BE-CharlineNeural"
+#    - "fr-BE-GerardNeural"
+#    - "fr-CA-SylvieNeural"
+#    - "fr-CA-JeanNeural"
+
+    - "fr-BE-CharlineNeural"       #        Female    General                Friendly, Positive
+    - "fr-BE-GerardNeural"         #        Male      General                Friendly, Positive
+    - "fr-CA-AntoineNeural"        #        Male      General                Friendly, Positive
+    - "fr-CA-JeanNeural"           #        Male      General                Friendly, Positive
+    - "fr-CA-SylvieNeural"         #        Female    General                Friendly, Positive
+    - "fr-CA-ThierryNeural"        #        Male      General                Friendly, Positive
+    - "fr-CH-ArianeNeural"         #        Female    General                Friendly, Positive
+    - "fr-CH-FabriceNeural"        #        Male      General                Friendly, Positive
+    - "fr-FR-DeniseNeural"         #        Female    General                Friendly, Positive
+#   - "fr-FR-EloiseNeural"         #        Female    General                Friendly, Positive
+    - "fr-FR-HenriNeural"          #        Male      General                Friendly, Positive
+    - "fr-FR-RemyMultilingualNeural"     #  Male      General                Friendly, Positive
+    - "fr-FR-VivienneMultilingualNeural" #  Female    General                Friendly, Positive
 
 audio:
   bitrate: "128k"
