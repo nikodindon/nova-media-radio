@@ -24,13 +24,13 @@ logger = logging.getLogger("nova.journal")
 # ------------------------------------------------------------------ #
 
 INTROS = [
-    "Bonjour, il est {heure}, vous êtes sur la radio d'infos de nikodindon. Voici les titres du jour de ce {date}.",
+    "Bonjour, il est {heure}, vous êtes sur la radio d'infos géniale de nikodindon. Voici les titres du jour de ce {date}.",
     "nikodindon Media : le seul support d'infos géré par des dindons qui travaillent dur, il est {heure}. Bienvenue dans votre journal de {date}.",
     "Bonsoir à tous, {heure} sur nikodindon Media , la meilleure radio du maine et loire. Faisons le point sur l'actualité de ce {date}.",
     "Il est exactement {heure}, vous écoutez nikodindon Media , et vous avez bien raison. Voici votre rendez-vous info du {date}.",
     "Bonjour et bienvenue sur nikodindon Media, la meilleure radio d'infos continue de France , rien que ça. En ce {date}, il est {heure}. Voici l'essentiel de l'actualité.",
-    "nikodindon media vous accueille, bienvenue sur la meilleur de l'info continue de Daumeray City. Il est {heure} ce {date}. Place aux informations.",
-    "Vous êtes sur Nikodindon media votre radio de l'actualité en continu situé au coeur de Daumeray City. Il est {heure}, ce {date}.",
+    "nikodindon media vous accueille avec le sourire, bienvenue sur la meilleur de l'info continue de Daumeray City. Il est {heure} ce {date}. Place aux informations.",
+    "Vous êtes sur Nikodindon media , votre radio de l'actualité en continu situé au coeur de Daumeray City. Il est {heure}, ce {date}.",
 ]
 
 TRANSITIONS = [
@@ -49,13 +49,13 @@ TRANSITIONS = [
 ]
 
 OUTROS = [
-    "C'est tout pour ce journal. Nous vous retrouvons très vite avec de nouvelles informations. En attendant, place à la musique, et n'oubliez pas : vous êtes capable du meilleur comme du pire. Mais dans le pire, c’est vous le meilleur..",
-    "Voilà pour ce bulletin d'information. Intéressant à se rappeler : il suffirait que les gens n’achètent pas des trucs nuls pour que ça ne se vende plus. nikodindon Media reste à vos côtés, place à la musique.",
-    "C'est la fin de ce journal. Restez à l'écoute de nikodindon Media pour toute l'actualité en continu. A garder en tête : On peut rire de tout, mais pas avec tout le monde",
-    "Nous vous donnons rendez-vous très prochainement pour un nouveau journal. et N'oubliez pas : Rien n’est moins sûr que l’incertain.En attendant, profitez de la musique sur Nikdindon Media.",
-    "Ce journal est terminé. Merci de votre écoute. Important à se rappeler tous les jours : Le problème, ce n’est pas les cons, c’est qu’ils osent tout.nikodindon Media continue avec de la musique.",
-    "C'est la fin de ce bulletin. À très bientôt sur nikodindon Media pour les prochaines informations. Ha oui au fait , Le capitalisme, c’est l’exploitation de l’homme par l’homme. Le communisme, c’est le contraire. Place à notre super musique !",
-    "Voilà, vous êtes informés. nikodindon Media reprend sa programmation musicale. A ne pas oublier : Un con qui marche ira toujours plus loin qu’un intellectuel assis.",
+    "C'est tout pour ce journal. Nous vous retrouvons très vite avec de nouvelles informations captivantes. En attendant, place à la musique, et n'oubliez pas : vous êtes capable du meilleur comme du pire. Mais dans le pire, c’est vous le meilleur..",
+    "Voilà pour ce bulletin d'information vraiment très instructifs. Intéressant à se rappeler : il suffirait que les gens n’achètent pas des trucs nuls pour que ça ne se vende plus. nikodindon Media reste à vos côtés, place à la musique.",
+    "C'est la fin de ce journal incroyable. Restez à l'écoute de nikodindon Media pour toute l'actualité en continu. A garder en tête : On peut rire de tout, mais pas avec n'importe qui",
+    "Nous vous donnons rendez-vous très prochainement pour un nouveau journal encore plus fascinant. et N'oubliez pas : Rien n’est moins sûr que l’incertain . ça fait réfléchir hein ?? , En attendant, profitez de la musique sur Nikdindon Media.",
+    "Ce journal est terminé. Merci de votre écoute gratuite. Important à se rappeler tous les jours : Le problème, c'est pas que les gens soient cons, mais c’est qu’ils osent tout . , nikodindon Media continue avec de la musique.",
+    "Malheureusement c'est déja la fin de ce bulletin. À très bientôt sur nikodindon Media pour les prochaines informations. Ha oui au fait , Le capitalisme, c’est l’exploitation de l’homme par l’homme. Le communisme, c’est le contraire. Place à notre super musique !",
+    "Voilà, vous êtes informés. vous êtes content ?? nikodindon Media reprend sa programmation musicale. A ne pas oublier : Un con qui marche ira toujours plus loin qu’un intellectuel assis.",
 ]
 
 # Jours et mois en français
@@ -196,11 +196,12 @@ class JournalBuilder:
                 "-stream_loop", "-1", "-i", str(bg),
                 "-filter_complex",
                 (
-                    f"[0:a]volume=1.0[voice];"
+                    f"[0:a]volume=2.0[voice];"
                     f"[1:a]volume={self.bg_volume}[bg];"
-                    f"[voice][bg]amix=inputs=2:duration=first:dropout_transition=2[out]"
+                    f"[voice][bg]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[out];"
+                    f"[out]volume=2[final]"          # ← ici on double le volume
                 ),
-                "-map", "[out]",
+                "-map", "[final]",
                 "-ar", str(self.sample_rate),
                 "-ac", "2",
                 "-b:a", self.bitrate,
