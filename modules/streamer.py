@@ -1,12 +1,13 @@
 """
-streamer.py
-Gère le flux audio continu vers Icecast via un pipe ffmpeg unique.
+streamer.py — Nova Media
 
-Principe :
-  - Un seul processus ffmpeg reste actif en permanence (pipe stdin)
-  - Les fichiers sont transcodés à la volée et écrits dans ce pipe
-  - Fadeout : on track la position de lecture en temps réel (bytes lus → secondes)
-    et on génère le fadeout depuis cette position exacte → transition fluide garantie
+Architecture : UN SEUL process ffmpeg permanent + pipe stdin
+  - Le pipe utilise le format AAC/ADTS qui supporte les streams continus
+  - Pas de headers MP3 cassés entre fichiers
+  - Zéro reconnexion Icecast = flux vraiment continu pour VLC
+
+Flux :
+  Python lit fichier → transcode en AAC/ADTS → pipe → ffmpeg → Icecast MP3
 """
 
 import logging
@@ -20,45 +21,28 @@ from queue import Empty, Queue
 
 logger = logging.getLogger("nova.streamer")
 
-CHUNK_SIZE = 65536   # 64KB par chunk
-FADE_DURATION = 3.0  # durée du fadeout en secondes
+FADE_DURATION      = 3.0
+CHUNK_SIZE         = 32768
+HEARTBEAT_INTERVAL = 0.5   # secondes entre heartbeats silence
+
+_SILENCE_BYTES: bytes = b""
 
 
-def _generate_silence(sample_rate: int, bitrate: str, duration: float = 0.5) -> bytes:
-    """Génère un court buffer de silence MP3."""
+def _generate_silence(sample_rate: int, bitrate: str, duration: float = 1.0) -> bytes:
+    """Génère du silence MP3 propre pour le heartbeat."""
     cmd = [
         "ffmpeg", "-y",
-        "-f", "lavfi",
-        "-i", f"anullsrc=r={sample_rate}:cl=stereo",
+        "-f", "lavfi", "-i", f"anullsrc=r={sample_rate}:cl=stereo",
         "-t", str(duration),
         "-b:a", bitrate,
         "-codec:a", "libmp3lame",
-        "-f", "mp3", "pipe:1"
+        "-f", "mp3",
+        "pipe:1"
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=10)
-        return result.stdout
+        return subprocess.run(cmd, capture_output=True, timeout=10).stdout
     except Exception:
         return b""
-
-
-def _get_duration(path: Path) -> float | None:
-    """Retourne la durée d'un fichier audio en secondes via ffprobe."""
-    try:
-        result = subprocess.run(
-            ["ffprobe", "-v", "error",
-             "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1",
-             str(path)],
-            capture_output=True, text=True, timeout=10
-        )
-        return float(result.stdout.strip())
-    except Exception:
-        return None
-
-
-# Buffer de silence global (initialisé dans Streamer.__init__)
-_SILENCE_BYTES: bytes = b""
 
 
 class Streamer:
@@ -67,21 +51,26 @@ class Streamer:
         ice   = config["icecast"]
         audio = config["audio"]
 
-        self.music_dir  = Path(radio["music_dir"])
-        self.queue_dir  = Path(radio["audio_queue_dir"])
+        self.music_dir   = Path(radio["music_dir"])
+        self.queue_dir   = Path(radio["audio_queue_dir"])
         self.bitrate     = audio["bitrate"]
         self.sample_rate = audio["sample_rate"]
+        self._debug      = config.get("_debug", False)
 
         self.icecast_url = (
             f"icecast://{ice['user']}:{ice['password']}"
             f"@{ice['host']}:{ice['port']}{ice['mount']}"
         )
 
-        self._stop_event     = threading.Event()
-        self._fade_requested = threading.Event()
+        self._stop_event      = threading.Event()
+        self._fade_requested  = threading.Event()
+        self._streaming_event = threading.Event()
         self._ffmpeg_proc: subprocess.Popen | None = None
         self._play_queue: Queue = Queue()
         self._lock = threading.Lock()
+
+        self._fade_cache: bytes | None = None
+        self._fade_cache_ready = threading.Event()
 
         self.queue_dir.mkdir(parents=True, exist_ok=True)
 
@@ -95,7 +84,6 @@ class Streamer:
     # ------------------------------------------------------------------ #
 
     def enqueue_bulletin(self, path: Path):
-        """Ajoute un journal à la file et demande un fadeout de la musique."""
         if path and path.exists():
             self._play_queue.put(path)
             logger.info(f"📥 Journal en file : {path.name}")
@@ -104,6 +92,10 @@ class Streamer:
     def run(self):
         logger.info("📻 Démarrage du streamer Nova Media")
         self._start_ffmpeg()
+
+        heartbeat = threading.Thread(target=self._heartbeat, daemon=True, name="Heartbeat")
+        heartbeat.start()
+
         try:
             while not self._stop_event.is_set():
                 self._play_next()
@@ -116,11 +108,23 @@ class Streamer:
         self._stop_event.set()
 
     # ------------------------------------------------------------------ #
+    #  Heartbeat                                                           #
+    # ------------------------------------------------------------------ #
+
+    def _heartbeat(self):
+        while not self._stop_event.is_set():
+            if self._ffmpeg_proc and self._ffmpeg_proc.poll() is not None:
+                logger.warning("⚠️ ffmpeg mort détecté, relance…")
+                self._start_ffmpeg()
+            if not self._streaming_event.is_set():
+                self._write_to_pipe(_SILENCE_BYTES)
+            time.sleep(HEARTBEAT_INTERVAL)
+
+    # ------------------------------------------------------------------ #
     #  Logique de lecture                                                  #
     # ------------------------------------------------------------------ #
 
     def _play_next(self):
-        """Joue le prochain fichier : journal prioritaire, sinon musique."""
         try:
             bulletin = self._play_queue.get_nowait()
             logger.info(f"🎙️ Diffusion journal : {bulletin.name}")
@@ -130,7 +134,6 @@ class Streamer:
             music = self._pick_music()
             if music:
                 if self._fade_requested.is_set():
-                    # Journal prêt avant que la musique commence → intro courte
                     self._stream_music_with_intro_fade(music)
                 else:
                     logger.info(f"🎵 Musique : {music.name}")
@@ -146,25 +149,20 @@ class Streamer:
         return random.choice(files) if files else None
 
     # ------------------------------------------------------------------ #
-    #  Cas : journal prêt avant que la musique commence                   #
+    #  Intro musicale courte si journal déjà prêt                         #
     # ------------------------------------------------------------------ #
 
     def _stream_music_with_intro_fade(self, music_path: Path):
-        """
-        Journal déjà prêt → joue 15s de musique puis fadeout propre.
-        Tout est calculé en une seule passe ffmpeg : pas de coupure.
-        """
         logger.info(f"🎵 Intro musicale avant journal : {music_path.name}")
         self._fade_requested.clear()
-
         INTRO = 15.0
-        tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+        tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=self.queue_dir)
         tmp.close()
         out_path = Path(tmp.name)
-
         cmd = [
             "ffmpeg", "-y",
             "-i", str(music_path),
+            "-vn", "-map", "0:a",
             "-t", str(INTRO + FADE_DURATION),
             "-af", f"afade=t=out:st={INTRO:.2f}:d={FADE_DURATION:.2f}",
             "-ar", str(self.sample_rate), "-ac", "2",
@@ -183,102 +181,118 @@ class Streamer:
             out_path.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------ #
-    #  Streaming principal                                                 #
+    #  Streaming via pipe — transcode en AAC/ADTS                         #
     # ------------------------------------------------------------------ #
 
     def _stream_file(self, path: Path, is_music: bool = True):
         """
-        Réencode et streame le fichier vers Icecast.
-
-        Si is_music=True et qu'un journal arrive pendant la lecture :
-          1. On note la position exacte (bytes lus → secondes écoulées)
-          2. On arrête proprement le transcodeur
-          3. On repart de cette position dans le fichier avec un afade=out
-          4. Transition parfaitement continue, sans saut audible
+        Transcode le fichier en AAC/ADTS et l'écrit dans le pipe ffmpeg.
+        AAC/ADTS est un format streamable sans header de début — zéro
+        discontinuité entre fichiers, zéro 'Header missing' côté ffmpeg.
         """
         if self._ffmpeg_proc is None or self._ffmpeg_proc.poll() is not None:
             logger.warning("⚠️ Process ffmpeg mort, relance…")
             self._start_ffmpeg()
             time.sleep(1)
 
-        self._write_silence()
-
-        # Durée totale du fichier (pour calculer le bitrate réel)
-        total_duration = _get_duration(path)
-
         transcode_cmd = [
             "ffmpeg", "-y",
             "-i", str(path),
+            "-vn", "-map", "0:a",           # audio uniquement, pas de cover art
             "-ar", str(self.sample_rate), "-ac", "2",
-            "-b:a", self.bitrate, "-codec:a", "libmp3lame",
-            "-f", "mp3", "pipe:1"
+            "-b:a", self.bitrate,
+            "-codec:a", "libmp3lame",
+            "-f", "mp3",
+            "pipe:1"
         ]
+
+        stderr_target = subprocess.PIPE if self._debug else subprocess.DEVNULL
 
         try:
             transcode = subprocess.Popen(
                 transcode_cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=stderr_target,
             )
+            if self._debug:
+                self._log_stderr(transcode, f"transcode:{path.stem[:15]}")
 
-            bytes_read   = 0
-            start_time   = time.monotonic()
+            self._streaming_event.set()
+            start_time = time.monotonic()
 
             while not self._stop_event.is_set():
 
-                # Journal arrivé → fadeout depuis la position courante
+                # Journal détecté → fadeout pré-généré en parallèle
                 if is_music and self._fade_requested.is_set():
-                    self._fade_requested.clear()
                     elapsed = time.monotonic() - start_time
                     logger.info(f"🎚️ Fadeout depuis {elapsed:.1f}s dans {path.name}")
+                    self._fade_cache = None
+                    self._fade_cache_ready.clear()
+                    ft = threading.Thread(
+                        target=self._prebuild_fadeout,
+                        args=(path, elapsed),
+                        daemon=True
+                    )
+                    ft.start()
+                    # Continuer à jouer pendant max 4s le temps que le fadeout soit prêt
+                    deadline = time.monotonic() + 4.0
+                    while not self._stop_event.is_set():
+                        if self._fade_cache_ready.is_set():
+                            break
+                        if time.monotonic() > deadline:
+                            break
+                        chunk = transcode.stdout.read(CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        self._write_to_pipe(chunk)
                     transcode.kill()
                     transcode.stdout.close()
                     transcode.wait(timeout=3)
-                    self._do_positioned_fadeout(path, elapsed)
+                    self._streaming_event.clear()
+                    self._fade_requested.clear()
+                    if self._fade_cache:
+                        logger.info("🎚️ Injection fadeout…")
+                        self._streaming_event.set()
+                        self._stream_bytes(self._fade_cache)
+                        self._streaming_event.clear()
                     return
 
                 chunk = transcode.stdout.read(CHUNK_SIZE)
                 if not chunk:
                     break
-
-                bytes_read += len(chunk)
-
-                try:
-                    self._ffmpeg_proc.stdin.write(chunk)
-                    self._ffmpeg_proc.stdin.flush()
-                except (BrokenPipeError, OSError):
-                    logger.error("Pipe Icecast cassé, relance…")
-                    transcode.kill()
-                    self._start_ffmpeg()
-                    return
+                self._write_to_pipe(chunk)
 
             transcode.stdout.close()
             transcode.wait(timeout=3)
 
         except Exception as e:
             logger.error(f"Erreur streaming {path.name} : {e}")
+        finally:
+            self._streaming_event.clear()
+
+    def _stream_bytes(self, data: bytes):
+        """Envoie des bytes directement dans le pipe (pour le fadeout)."""
+        offset = 0
+        while offset < len(data) and not self._stop_event.is_set():
+            chunk = data[offset:offset + CHUNK_SIZE]
+            self._write_to_pipe(chunk)
+            offset += len(chunk)
 
     # ------------------------------------------------------------------ #
-    #  Fadeout positionné : repart exactement là où on était              #
+    #  Fadeout pré-généré en parallèle                                    #
     # ------------------------------------------------------------------ #
 
-    def _do_positioned_fadeout(self, path: Path, position_seconds: float):
-        """
-        Repart depuis `position_seconds` dans le fichier original,
-        joue FADE_DURATION secondes avec un fadeout progressif.
-        Résultat : transition parfaitement fluide, sans saut ni bout de chanson bizarre.
-        """
-        logger.info(f"🎚️ Génération fadeout positionné à {position_seconds:.1f}s…")
-        tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+    def _prebuild_fadeout(self, path: Path, position_seconds: float):
+        tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False, dir=self.queue_dir)
         tmp.close()
         out_path = Path(tmp.name)
-
         cmd = [
             "ffmpeg", "-y",
-            "-ss", f"{position_seconds:.3f}",   # seek exact vers la position courante
+            "-ss", f"{position_seconds:.3f}",
             "-i", str(path),
-            "-t", f"{FADE_DURATION:.2f}",        # on prend juste la durée du fade
-            "-af", f"afade=t=out:st=0:d={FADE_DURATION:.2f}",  # fade depuis le début du segment
+            "-vn", "-map", "0:a",
+            "-t", f"{FADE_DURATION:.2f}",
+            "-af", f"afade=t=out:st=0:d={FADE_DURATION:.2f}",
             "-ar", str(self.sample_rate), "-ac", "2",
             "-b:a", self.bitrate, "-codec:a", "libmp3lame",
             str(out_path)
@@ -286,64 +300,83 @@ class Streamer:
         try:
             r = subprocess.run(cmd, capture_output=True, timeout=30)
             if r.returncode == 0 and out_path.stat().st_size > 0:
-                logger.info("🎚️ Fadeout positionné prêt, diffusion…")
-                self._stream_file(out_path, is_music=False)
+                self._fade_cache = out_path.read_bytes()
+                logger.info("🎚️ Fadeout pré-généré OK")
             else:
-                logger.warning(f"Fadeout positionné échoué (code {r.returncode}), passage direct au journal")
+                logger.warning("Pré-génération fadeout échouée")
         except Exception as e:
-            logger.warning(f"Erreur fadeout positionné : {e}")
+            logger.warning(f"Erreur fadeout : {e}")
         finally:
             out_path.unlink(missing_ok=True)
+            self._fade_cache_ready.set()
 
     # ------------------------------------------------------------------ #
-    #  Silence de transition                                               #
+    #  Écriture dans le pipe                                               #
     # ------------------------------------------------------------------ #
 
-    def _write_silence(self):
-        if not _SILENCE_BYTES:
-            return
+    def _write_to_pipe(self, data: bytes) -> bool:
+        if not data or self._ffmpeg_proc is None:
+            return True
         try:
-            self._ffmpeg_proc.stdin.write(_SILENCE_BYTES)
+            self._ffmpeg_proc.stdin.write(data)
             self._ffmpeg_proc.stdin.flush()
-        except (BrokenPipeError, OSError):
-            pass
+            return True
+        except (BrokenPipeError, OSError) as e:
+            logger.error(f"Pipe cassé ({type(e).__name__}: {e}), reconnexion…")
+            self._start_ffmpeg()
+            time.sleep(0.3)
+            try:
+                self._ffmpeg_proc.stdin.write(_SILENCE_BYTES)
+                self._ffmpeg_proc.stdin.flush()
+            except Exception:
+                pass
+            return False
 
     # ------------------------------------------------------------------ #
-    #  Process ffmpeg → Icecast                                           #
+    #  Process ffmpeg → Icecast (lit AAC/ADTS depuis stdin)               #
     # ------------------------------------------------------------------ #
 
     def _start_ffmpeg(self):
         with self._lock:
             self._kill_ffmpeg()
             cmd = [
-                "ffmpeg", "-re",
-                "-f", "mp3", "-i", "pipe:0",
+                "ffmpeg",
+                "-re",
+                "-probesize",       "32",   # ne pas chercher un header complet
+                "-analyzeduration", "0",    # pas d'analyse de durée
+                "-f", "mp3",
+                "-i", "pipe:0",
+                "-vn", "-map", "0:a",
+                "-codec:a", "libmp3lame",
+                "-b:a", self.bitrate,
                 "-ar", str(self.sample_rate), "-ac", "2",
-                "-b:a", self.bitrate, "-codec:a", "libmp3lame",
                 "-f", "mp3",
                 "-content_type", "audio/mpeg",
                 "-ice_name", "Nova Media",
                 "-ice_description", "Radio IA automatisée",
                 self.icecast_url,
             ]
+            stderr_target = subprocess.PIPE if self._debug else subprocess.DEVNULL
             for attempt in range(1, 11):
                 try:
                     self._ffmpeg_proc = subprocess.Popen(
                         cmd,
                         stdin=subprocess.PIPE,
                         stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
+                        stderr=stderr_target,
                     )
+                    if self._debug:
+                        self._log_stderr(self._ffmpeg_proc, "icecast")
                     time.sleep(1.5)
                     if self._ffmpeg_proc.poll() is not None:
-                        raise ConnectionError("ffmpeg s'est arrêté immédiatement")
+                        raise ConnectionError("ffmpeg mort immédiatement")
                     logger.info(f"🔗 Connecté à Icecast (tentative {attempt})")
                     return
                 except Exception as e:
-                    logger.warning(f"⏳ Icecast non joignable (tentative {attempt}/10) : {e}")
+                    logger.warning(f"⏳ Tentative {attempt}/10 : {e}")
                     self._ffmpeg_proc = None
                     time.sleep(3)
-            logger.error("❌ Impossible de se connecter à Icecast après 10 tentatives.")
+            logger.error("❌ Impossible de se connecter à Icecast.")
 
     def _kill_ffmpeg(self):
         if self._ffmpeg_proc and self._ffmpeg_proc.poll() is None:
@@ -351,9 +384,32 @@ class Streamer:
                 self._ffmpeg_proc.stdin.close()
             except Exception:
                 pass
-            self._ffmpeg_proc.terminate()
+            try:
+                self._ffmpeg_proc.terminate()
+            except Exception:
+                pass
             try:
                 self._ffmpeg_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self._ffmpeg_proc.kill()
+                try:
+                    self._ffmpeg_proc.kill()
+                except Exception:
+                    pass
         self._ffmpeg_proc = None
+
+    # ------------------------------------------------------------------ #
+    #  Debug                                                               #
+    # ------------------------------------------------------------------ #
+
+    def _log_stderr(self, proc: subprocess.Popen, label: str):
+        if proc.stderr is None:
+            return
+        def _reader():
+            try:
+                for line in proc.stderr:
+                    line = line.decode("utf-8", errors="replace").strip()
+                    if line:
+                        logger.debug(f"[ffmpeg/{label}] {line}")
+            except Exception:
+                pass
+        threading.Thread(target=_reader, daemon=True, name=f"ffmpeg-log-{label}").start()
