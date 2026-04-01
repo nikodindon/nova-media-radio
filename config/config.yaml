@@ -18,30 +18,112 @@ radio:
   background_volume: 0.30        # volume musique de fond (30%)
 
 tts:
-  language: "fr"                 # langue par défaut pour les voix
-  # Voix françaises disponibles dans edge-tts
-  voices:
-#    - "fr-FR-DeniseNeural"
-#    - "fr-FR-HenriNeural"
-#    - "fr-FR-EloiseNeural"
-#    - "fr-BE-CharlineNeural"
-#    - "fr-BE-GerardNeural"
-#    - "fr-CA-SylvieNeural"
-#    - "fr-CA-JeanNeural"
+  language: "fr-CA"                 # langue par défaut pour les voix
 
-    - "fr-BE-CharlineNeural"       #        Female    General                Friendly, Positive
-    - "fr-BE-GerardNeural"         #        Male      General                Friendly, Positive
-    - "fr-CA-AntoineNeural"        #        Male      General                Friendly, Positive
-    - "fr-CA-JeanNeural"           #        Male      General                Friendly, Positive
-    - "fr-CA-SylvieNeural"         #        Female    General                Friendly, Positive
-    - "fr-CA-ThierryNeural"        #        Male      General                Friendly, Positive
-    - "fr-CH-ArianeNeural"         #        Female    General                Friendly, Positive
-    - "fr-CH-FabriceNeural"        #        Male      General                Friendly, Positive
-    - "fr-FR-DeniseNeural"         #        Female    General                Friendly, Positive
-#   - "fr-FR-EloiseNeural"         #        Female    General                Friendly, Positive
-    - "fr-FR-HenriNeural"          #        Male      General                Friendly, Positive
-    - "fr-FR-RemyMultilingualNeural"     #  Male      General                Friendly, Positive
-    - "fr-FR-VivienneMultilingualNeural" #  Female    General                Friendly, Positive
+  voices:
+
+    # ------------------------------------------------------------------ #
+    #  🇫🇷 Français                                                        #
+    # ------------------------------------------------------------------ #
+    - "fr-FR-HenriNeural"               # Male     Friendly, Positive
+    - "fr-FR-DeniseNeural"              # Female   Friendly, Positive
+    - "fr-FR-RemyMultilingualNeural"    # Male     Friendly, Positive
+    - "fr-FR-VivienneMultilingualNeural" # Female  Friendly, Positive
+    - "fr-BE-CharlineNeural"            # Female   Friendly, Positive
+    - "fr-BE-GerardNeural"              # Male     Friendly, Positive
+    - "fr-CA-AntoineNeural"             # Male     Friendly, Positive
+    #- "fr-CA-JeanNeural"                # Male     Friendly, Positive
+    - "fr-CA-SylvieNeural"              # Female   Friendly, Positive
+    - "fr-CA-ThierryNeural"             # Male     Friendly, Positive
+    - "fr-CH-ArianeNeural"              # Female   Friendly, Positive
+    - "fr-CH-FabriceNeural"             # Male     Friendly, Positive
+
+    # ------------------------------------------------------------------ #
+    #  🇬🇧 Anglais                                                         #
+    # Pour activer : décommenter les lignes souhaitées (retirer le #)     #
+    # ------------------------------------------------------------------ #
+    #- "en-US-AriaNeural"                # Female   News, Friendly
+    #- "en-US-GuyNeural"                 # Male     News, Friendly
+    #- "en-US-JennyNeural"               # Female   Friendly, Positive
+    #- "en-US-DavisNeural"               # Male     Friendly, Positive
+    #- "en-GB-SoniaNeural"               # Female   Friendly, Positive
+    #- "en-GB-RyanNeural"                # Male     Friendly, Positive
+    #- "en-GB-LibbyNeural"               # Female   Friendly, Positive
+    #- "en-AU-NatashaNeural"             # Female   Friendly, Positive
+    #- "en-AU-WilliamNeural"             # Male     Friendly, Positive
+
+    # ------------------------------------------------------------------ #
+    #  🇩🇪 Allemand                                                        #
+    # ------------------------------------------------------------------ #
+#   - "de-DE-KatjaNeural"               # Female   Friendly, Positive
+#   - "de-DE-ConradNeural"              # Male     Friendly, Positive
+#   - "de-DE-AmalaNeural"               # Female   Friendly, Positive
+#   - "de-DE-BerndNeural"               # Male     Friendly, Positive
+#   - "de-AT-IngridNeural"              # Female   Friendly, Positive  (Autriche)
+#   - "de-AT-JonasNeural"               # Male     Friendly, Positive  (Autriche)
+#   - "de-CH-LeniNeural"                # Female   Friendly, Positive  (Suisse)
+#   - "de-CH-JanNeural"                 # Male     Friendly, Positive  (Suisse)
+
+    # ------------------------------------------------------------------ #
+    #  🇪🇸 Espagnol                                                        #
+    # ------------------------------------------------------------------ #
+#   - "es-ES-ElviraNeural"              # Female   Friendly, Positive
+#   - "es-ES-AlvaroNeural"              # Male     Friendly, Positive
+#   - "es-MX-DaliaNeural"               # Female   Friendly, Positive  (Mexique)
+#   - "es-MX-JorgeNeural"               # Male     Friendly, Positive  (Mexique)
+#   - "es-AR-ElenaNeural"               # Female   Friendly, Positive  (Argentine)
+#   - "es-AR-TomasNeural"               # Male     Friendly, Positive  (Argentine)
+
+    # ------------------------------------------------------------------ #
+    #  🇵🇹 Portugais                                                       #
+    # ------------------------------------------------------------------ #
+#   - "pt-BR-FranciscaNeural"           # Female   Friendly, Positive  (Brésil)
+#   - "pt-BR-AntonioNeural"             # Male     Friendly, Positive  (Brésil)
+#   - "pt-PT-RaquelNeural"              # Female   Friendly, Positive  (Portugal)
+#   - "pt-PT-DuarteNeural"              # Male     Friendly, Positive  (Portugal)
+#   - "pt-PT-FernandaNeural"            # Female   Friendly, Positive  (Portugal)
+
+    # ------------------------------------------------------------------ #
+    #  🇷🇺 Russe                                                           #
+    # ------------------------------------------------------------------ #
+#   - "ru-RU-SvetlanaNeural"            # Female   Friendly, Positive
+#   - "ru-RU-DmitryNeural"              # Male     Friendly, Positive
+#   - "ru-RU-DariyaNeural"              # Female   Friendly, Positive
+
+    # ------------------------------------------------------------------ #
+    #  🇸🇦 Arabe                                                           #
+    # ------------------------------------------------------------------ #
+#   - "ar-SA-ZariyahNeural"             # Female   Friendly, Positive  (Arabie Saoudite)
+#   - "ar-SA-HamedNeural"               # Male     Friendly, Positive  (Arabie Saoudite)
+#   - "ar-EG-SalmaNeural"               # Female   Friendly, Positive  (Égypte)
+#   - "ar-EG-ShakirNeural"              # Male     Friendly, Positive  (Égypte)
+#   - "ar-MA-MounaNeural"               # Female   Friendly, Positive  (Maroc)
+#   - "ar-MA-JamalNeural"               # Male     Friendly, Positive  (Maroc)
+#   - "ar-DZ-AminaNeural"               # Female   Friendly, Positive  (Algérie)
+#   - "ar-DZ-IsmaelNeural"              # Male     Friendly, Positive  (Algérie)
+
+    # ------------------------------------------------------------------ #
+    #  🇯🇵 Japonais                                                        #
+    # ------------------------------------------------------------------ #
+#    - "ja-JP-NanamiNeural"              # Female   Friendly, Positive
+#    - "ja-JP-KeitaNeural"               # Male     Friendly, Positive
+#    - "ja-JP-AoiNeural"                 # Female   Friendly, Positive
+#    - "ja-JP-DaichiNeural"              # Male     Friendly, Positive
+#    - "ja-JP-MayuNeural"                # Female   Friendly, Positive
+#    - "ja-JP-NaokiNeural"               # Male     Friendly, Positive
+
+    # ------------------------------------------------------------------ #
+    #  🇨🇳 Chinois mandarin                                                #
+    # ------------------------------------------------------------------ #
+#   - "zh-CN-XiaoxiaoNeural"            # Female   Friendly, Positive
+#   - "zh-CN-YunxiNeural"               # Male     Friendly, Positive
+#   - "zh-CN-YunyangNeural"             # Male     News, Professional
+#   - "zh-CN-XiaohanNeural"             # Female   Friendly, Positive
+#   - "zh-CN-XiaomengNeural"            # Female   Friendly, Positive
+#   - "zh-TW-HsiaoChenNeural"           # Female   Friendly, Positive  (Taïwan)
+#   - "zh-TW-YunJheNeural"              # Male     Friendly, Positive  (Taïwan)
+#   - "zh-HK-HiuMaanNeural"             # Female   Friendly, Positive  (Hong Kong / Cantonais)
+#   - "zh-HK-WanLungNeural"             # Male     Friendly, Positive  (Hong Kong / Cantonais)
 
 audio:
   bitrate: "128k"

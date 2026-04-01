@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import yaml
 
-from modules.journal_builder import JournalBuilder
+from modules.journal_builder import JournalBuilder, verify_messages_file
 from modules.news_watcher import NewsWatcher
 from modules.streamer import Streamer
 
@@ -161,6 +161,7 @@ def main():
 
     create_directories(config)
     check_prerequisites(logger)
+    verify_messages_file()
 
     # Passer le flag debug aux modules
     config["_debug"] = args.debug

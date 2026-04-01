@@ -2,17 +2,18 @@
 
 > An autonomous AI radio station driven by live news data, Text-to-Speech synthesis, and Icecast streaming.
 
-Music plays continuously. When enough new articles are detected, an AI-voiced news bulletin is automatically generated and seamlessly inserted into the live stream — with a smooth fadeout of the current track.
+Music plays continuously. When enough new articles are detected, an AI-voiced news bulletin is automatically generated and seamlessly inserted into the live stream — with a smooth fadeout of the current track and no interruption to listeners.
 
 ---
 
 ## ✨ Features
 
-- 🎵 **Continuous music streaming** via a single stable ffmpeg pipe to Icecast
+- 🎵 **Truly continuous streaming** — a single permanent ffmpeg pipe to Icecast, VLC never disconnects between tracks
 - 📰 **Real-time news monitoring** — watches a JSON file for incoming articles every 2 seconds
 - 🎙️ **Automatic bulletin generation** — assembles a script, synthesizes speech with edge-tts, mixes with background music
-- 🎚️ **Smooth fadeout** — music fades out cleanly when a bulletin is ready, no abrupt cuts
+- 🎚️ **Smooth pre-generated fadeout** — fadeout is built in parallel while music still plays, injected seamlessly with zero silence gap
 - 🔀 **Random voices** — picks a different TTS voice for each bulletin
+- 🐛 **Debug mode** — `--debug` flag captures full ffmpeg logs for troubleshooting
 - 🌐 **Cross-platform** — works on Linux and Windows 11
 - ⚙️ **Fully configurable** via a single YAML file
 
@@ -24,6 +25,7 @@ Music plays continuously. When enough new articles are detected, an AI-voiced ne
 nova_media/
 ├── main.py                      ← Entry point — orchestrates all threads
 ├── requirements.txt
+├── nova_media.m3u               ← VLC playlist with auto-reconnect
 ├── docker-compose.yml           ← Icecast server (Docker)
 ├── icecast.xml                  ← Icecast configuration
 ├── config/
@@ -31,7 +33,7 @@ nova_media/
 ├── modules/
 │   ├── news_watcher.py          ← JSON file watcher
 │   ├── journal_builder.py       ← Script builder + TTS + audio mixing
-│   └── streamer.py              ← Icecast live stream via ffmpeg pipe
+│   └── streamer.py              ← Continuous Icecast stream via ffmpeg pipe
 ├── data/
 │   ├── articles/                ← Your news JSON files (YYYYMMDD_articles.json)
 │   └── processed_hashes.json   ← Tracks already-processed articles (auto)
@@ -82,29 +84,23 @@ python main.py
 
 Download from https://www.python.org/downloads/windows/
 
-> ⚠️ Make sure to check **"Add Python to PATH"** during installation.
+> ⚠️ Check **"Add Python to PATH"** during installation.
 
 **2. Install ffmpeg**
 
-1. Download a Windows build from https://ffmpeg.org/download.html (essentials or full build from gyan.dev or BtbN)
-2. Extract the archive, e.g. to `C:\ffmpeg\`
+1. Download a Windows build from https://ffmpeg.org/download.html (essentials build from gyan.dev)
+2. Extract to e.g. `C:\ffmpeg\`
 3. Add `C:\ffmpeg\bin` to your **system PATH**:
-   - Search "Environment Variables" in the Start menu
-   - Edit the `Path` variable
-   - Add `C:\ffmpeg\bin`
-4. **Restart your terminal**, then verify: `ffmpeg -version`
+   - Search "Environment Variables" in Start menu → Edit `Path` → Add `C:\ffmpeg\bin`
+4. **Restart your terminal**, verify with: `ffmpeg -version`
 
-**3. Install Docker Desktop (for Icecast)**
+**3. Install Docker Desktop**
 
-Download from https://www.docker.com/products/docker-desktop/
-
-> Wait for Docker Desktop to fully start (green icon in the system tray) before running the next step.
+Download from https://www.docker.com/products/docker-desktop/ — wait for the green icon in the system tray before continuing.
 
 **Alternative without Docker**: download the native Windows Icecast binary from https://www.icecast.org/download/ and use the `icecast.xml` from this project.
 
 **4. Python dependencies**
-
-Open a terminal (PowerShell or cmd) in the project folder:
 ```powershell
 pip install -r requirements.txt
 ```
@@ -113,12 +109,11 @@ pip install -r requirements.txt
 ```powershell
 docker-compose up -d
 ```
-Check it's running: http://localhost:8000
 
 **6. Add your audio files**
 ```
 music\             → drop your MP3s here (at least 1 required)
-background_music\  → background music for bulletins (optional but recommended)
+background_music\  → background music for bulletins (optional)
 ```
 
 **7. Run Nova Media**
@@ -126,17 +121,36 @@ background_music\  → background music for bulletins (optional but recommended)
 python main.py
 ```
 
-To stop: **Ctrl+C** in the terminal.
+To stop: **Ctrl+C**
 
 ---
 
 ## 📻 Listening to the Stream
 
-| Client | URL |
+| Client | How |
 |--------|-----|
-| **VLC** | Media → Open Network Stream → `http://localhost:8000/nova` |
+| **VLC (recommended)** | Open `nova_media.m3u` — auto-reconnects if stream drops |
+| **VLC (manual)** | Media → Open Network Stream → `http://localhost:8000/nova` |
 | **Browser** | http://localhost:8000/nova |
 | **ffplay** | `ffplay http://localhost:8000/nova` |
+
+> 💡 Use `nova_media.m3u` in VLC for the best experience — it handles reconnection automatically.
+
+---
+
+## ▶️ Command Line Options
+
+```bash
+python main.py                        # normal mode
+python main.py --debug                # debug mode: full ffmpeg logs, detailed output
+python main.py --config path/to.yaml  # custom config file path
+```
+
+**Debug mode** writes to `nova_media_debug.log` and captures:
+- Full ffmpeg stderr output (codec info, errors, stream details)
+- Thread name on every log line
+- Exact pipe error type when Icecast disconnects
+- ffmpeg PID and version at startup
 
 ---
 
@@ -153,15 +167,24 @@ To stop: **Ctrl+C** in the terminal.
 | `radio.background_volume` | Background music volume (0.0–1.0) | `0.30` |
 | `tts.voices` | List of edge-tts voices to use randomly | see yaml |
 
-### Available TTS voices
+### TTS voices
 
 List all available voices:
 ```bash
 edge-tts --list-voices
-```
-Filter by language (e.g. French):
-```bash
+# Filter by language:
 edge-tts --list-voices | grep fr-
+```
+
+### Absolute paths on Windows
+
+Use forward slashes `/` in `config.yaml` — backslashes are special characters in YAML:
+```yaml
+# ✅ Correct
+data_dir: "c:/audio/articles"
+
+# ❌ Wrong — \a will be misinterpreted
+data_dir: "c:\audio\articles"
 ```
 
 ---
@@ -185,37 +208,63 @@ File: `data/articles/YYYYMMDD_articles.json`
 ]
 ```
 
-Only the `summary` field is used for the bulletin script. Articles with a summary starting with `[Contenu inaccessible]` are automatically skipped.
+Only the `summary` field is used for the bulletin script.
+
+Articles with a summary starting with `[Contenu inaccessible]` are automatically skipped and never counted toward the bulletin threshold.
 
 ---
 
 ## 🧵 Architecture
 
-Nova Media runs three concurrent threads:
+Nova Media runs several concurrent threads:
 
 ```
 main.py
-  ├── Thread 1 — NewsWatcher    watches YYYYMMDD_articles.json every 2s
-  │                              triggers a bulletin when N new articles detected
+  ├── NewsWatcher      watches YYYYMMDD_articles.json every 2s
+  │                    triggers bulletin generation when N new articles detected
   │
-  ├── Thread 2 — Streamer       maintains a single ffmpeg pipe to Icecast
-  │                              plays music continuously, bulletins take priority
-  │                              applies smooth fadeout when a bulletin is ready
+  ├── Streamer         main playback loop — music or bulletin, one at a time
   │
-  └── Thread 3 — BulletinGen    spawned on demand when articles are ready
-                                 builds script → TTS (edge-tts) → mix with ffmpeg
-                                 drops final MP3 into audio_queue/
+  ├── Heartbeat        sends 1s of silence every 500ms when nothing is streaming
+  │                    keeps the Icecast pipe alive between tracks
+  │
+  ├── BulletinGen      spawned on demand: TTS → mix → audio_queue/
+  │
+  ├── _prebuild_fadeout spawned when bulletin arrives during music playback
+  │                    generates fadeout IN PARALLEL while music still plays
+  │
+  ├── ffmpeg/transcode  one process per audio file, reads source MP3
+  │
+  └── ffmpeg/icecast   ONE permanent process → Icecast (never restarted between tracks)
 ```
 
-**Streaming design**: a single long-lived ffmpeg process reads from stdin and pushes to Icecast. Music and bulletins are transcoded separately and written into this pipe one after the other — no stream restarts, no client disconnections.
+### Why the stream stays continuous
+
+The core design uses **a single permanent ffmpeg process** connected to Icecast via stdin pipe. Key options that make this work:
+
+- **`-probesize 32 -analyzeduration 0`** — prevents ffmpeg from waiting for a complete MP3 header at pipe start; each file's bytes flow straight through without triggering "Header missing" errors
+- **`-vn -map 0:a`** — strips embedded cover art (PNG/JPEG) from MP3 files before sending to Icecast; without this, ffmpeg tries to stream the image as a video track and Icecast returns 404
+
+### Fadeout sequence
+
+```
+Journal ready → _fade_requested set
+                 ↓
+             _prebuild_fadeout thread starts (runs ffmpeg -ss {position} -af afade)
+                 ↓
+             Music continues playing for up to 4s while fadeout generates (~1s)
+                 ↓
+             Fadeout cached in memory → music transoder killed cleanly
+                 ↓
+             Fadeout bytes injected into pipe → bulletin plays → next music track
+```
 
 ---
 
 ## 🔧 Troubleshooting
 
-**VLC won't connect**
-→ Check Icecast is running: `docker-compose ps`
-→ Check the logs for `🔗 Connected to Icecast`
+**VLC disconnects between tracks**
+→ Use `nova_media.m3u` instead of the raw URL — VLC reconnects automatically
 
 **No sound / silence**
 → Make sure there are MP3 files in `music/`
@@ -224,52 +273,57 @@ main.py
 → edge-tts requires an internet connection (Microsoft API)
 
 **Change the Icecast password**
-→ Update both `icecast.xml` and `config/config.yaml`, then restart Docker
+→ Update both `icecast.xml` AND `config/config.yaml`, then restart Docker:
+```powershell
+docker-compose down && docker-compose up -d
+```
+
+**Diagnose pipe issues**
+→ Run with `--debug` and capture `nova_media_debug.log` — look for `BrokenPipeError` or ffmpeg error codes
 
 ---
 
 ### 🪟 Windows-specific issues
 
-**Absolute paths in `config.yaml`**
-→ Backslashes `\` are special characters in YAML. Always use forward slashes `/`:
-```yaml
-# ✅ Correct
-data_dir: "c:/audio/articles"
-music_dir: "c:/audio/music"
-
-# ❌ Wrong — \a and \m will be misinterpreted
-data_dir: "c:\audio\articles"
-```
-
 **`ffmpeg` not found**
-→ Make sure `C:\ffmpeg\bin` is in your PATH and restart the terminal after editing it
-→ Test with: `where ffmpeg`
+→ Verify `C:\ffmpeg\bin` is in PATH, restart terminal, test with `where ffmpeg`
 
 **`docker-compose` not found**
-→ With Docker Desktop, use `docker compose` (no hyphen):
+→ With Docker Desktop use `docker compose` (no hyphen):
 ```powershell
 docker compose up -d
 ```
 
 **Encoding errors in logs**
-→ Force UTF-8 in PowerShell before running:
+→ Force UTF-8 in PowerShell:
 ```powershell
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 python main.py
 ```
 
-**Emojis not displaying in terminal**
-→ Use Windows Terminal (available on the Microsoft Store) instead of the classic cmd
+**Emojis not displaying**
+→ Use Windows Terminal (Microsoft Store) instead of cmd
+
+---
+
+## 🌿 Branches
+
+| Branch | Description |
+|--------|-------------|
+| `main` | Stable production version with edge-tts |
+| `v2-melotts` | In progress — XTTS-v2 local TTS (higher quality, no internet needed) |
 
 ---
 
 ## 🛠️ Roadmap
 
-- [ ] Web monitoring dashboard
+- [ ] XTTS-v2 local TTS integration (branch `v2-melotts`)
+- [ ] Claude API integration to rewrite summaries in radio-friendly style
+- [ ] Web monitoring dashboard (current track, next bulletin, thread status)
 - [ ] Multi-stream support (multiple mount points)
 - [ ] Jingles and station IDs
-
+- [ ] Automatic news feed (RSS → AI summary → JSON)
 
 ---
 
@@ -277,9 +331,9 @@ python main.py
 
 | Package | Purpose |
 |---------|---------|
-| `edge-tts` | Text-to-speech synthesis (Microsoft Neural voices) |
+| `edge-tts` | Text-to-speech (Microsoft Neural voices, internet required) |
 | `pyyaml` | YAML config parsing |
-| `ffmpeg` *(system)* | Audio transcoding, mixing, streaming |
+| `ffmpeg` *(system)* | Audio transcoding, mixing, pipe streaming |
 | `icecast` *(Docker)* | Live audio streaming server |
 
 ---
